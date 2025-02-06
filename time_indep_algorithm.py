@@ -34,9 +34,18 @@ def jacobi_diffusion_vectorized(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_itera
     c_k = np.zeros((N, M))
     c_kp1 = np.zeros_like(c_k)
 
+    # set the left and right boundary values
+    left_right_boundary = np.linspace(0, 1, N)
+    print(left_right_boundary)
+
     # stationary boundary conditions
+    c_k[:, 0] = left_right_boundary
+    c_k[:, -1] = left_right_boundary
     c_k[-1, :] = 1
     c_k[0, :] = 0
+
+    c_kp1[:, 0] = left_right_boundary
+    c_kp1[:, -1] = left_right_boundary
     c_kp1[-1, :] = 1
     c_kp1[0, :] = 0
 
@@ -46,12 +55,12 @@ def jacobi_diffusion_vectorized(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_itera
     iteration = 0
     while iteration < max_iterations:
         # update interior points
-        # add a 0 column at the beginning and end of the array
-        left_shifted = np.pad(c_k[1:-1, :-1], ((0, 0), (1, 0)), mode='constant', constant_values=0)  # pad left with a 0 column
-        right_shifted = np.pad(c_k[1:-1, 1:], ((0, 0), (0, 1)), mode='constant', constant_values=0)  # pad right with a 0 column
+        # # add a 0 column at the beginning and end of the array
+        # left_shifted = np.pad(c_k[1:-1, :-1], ((0, 0), (1, 0)), mode='constant', constant_values=0)  # pad left with a 0 column
+        # right_shifted = np.pad(c_k[1:-1, 1:], ((0, 0), (0, 1)), mode='constant', constant_values=0)  # pad right with a 0 column
 
-        c_kp1[1:-1, :] = alpha * (
-            c_k[:-2, :] + c_k[2:, :] + left_shifted + right_shifted
+        c_kp1[1:-1, 1:-1] = alpha * (
+            c_k[:-2, 1:-1] + c_k[2:, 1:-1] + c_k[1:-1, :-2] + c_k[1:-1, 2:]
         )
 
         # calculate the error
@@ -72,28 +81,21 @@ def jacobi_diffusion_vectorized(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_itera
 # run the Jacobi iteration
 optimized_concentration = jacobi_diffusion_vectorized()
 
-column_differences = np.max(np.abs(optimized_concentration - optimized_concentration[:, [0]]), axis=0)
-
-# 计算所有列是否完全相同（即误差为 0）
-all_columns_identical = np.all(column_differences < 1e-6)
-
-
-# 绘制 optimized_concentration 的热力图
+# plot the heatmap of the optimized concentration
 plt.figure(figsize=(6, 4))
 plt.imshow(optimized_concentration, cmap="hot", aspect="auto", extent=[0, 1, 0, 1])
 plt.colorbar(label="Concentration")
 plt.xlabel("x")
 plt.ylabel("y")
 plt.title("Heatmap of Optimized Concentration $c(x, y)$")
-plt.gca().invert_yaxis()  # 确保 y=0 在底部，y=1 在顶部
+plt.gca().invert_yaxis()  # invert y-axis to match the analytical solution
 plt.show()
-
 
 
 # calculate the numerical solution
 print(optimized_concentration[:, 0])
 print(optimized_concentration[:, -2])
-c_y_numerical_optimized = np.mean(optimized_concentration, axis=0)
+c_y_numerical_optimized = np.mean(optimized_concentration, axis=1)
 y_values_optimized = np.linspace(0, 1, len(c_y_numerical_optimized))
 
 # calculate the maximum error

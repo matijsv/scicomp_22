@@ -228,6 +228,42 @@ def gauss_seidel_wavefront(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations
 
     return c_k, iteration, delta
 
+# Successive Over Relaxation (SOR) method
+@njit
+def sor_seq(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-5):
+    """
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # set the left and right boundary values
+    left_right_boundary = np.linspace(0, 1, N)
+
+    # stationary boundary conditions
+    c_k[:, 0] = left_right_boundary
+    c_k[:, -1] = left_right_boundary
+    c_k[-1, :] = 1
+    c_k[0, :] = 0
+
+    iteration = 0
+    while iteration < max_iterations:
+        delta = 0.0  # global error at each iteration
+        
+        # general SOR update
+        for i in range(1, N - 1):
+            for j in range(1, M - 1):
+                old_value = c_k[i, j]
+                c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1]) + (1 - omega) * c_k[i, j]
+                delta = max(delta, abs(c_k[i, j] - old_value))
+
+        # check for convergence
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta
+
 if __name__ == "__main__":
     # run the Jacobi iteration
     # optimized_concentration, iteration, delta = jacobi_parallel()
@@ -236,7 +272,7 @@ if __name__ == "__main__":
     #     np.allclose(optimized_concentration[:, i], optimized_concentration[:, -i])
     #print("All columns are the same symetrically.")
 
-    optimized_concentration, iteration, delta = gauss_seidel_wavefront()
+    optimized_concentration, iteration, delta = sor_seq()
     print(f"Converged after {iteration} iterations with error {delta:.6e}")
     
     # plot the heatmap of the optimized concentration

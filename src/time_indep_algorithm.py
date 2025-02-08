@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from numba import prange, njit
 
 # jacobi method
-def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000, epsilon=1e-8):
+def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=10000, epsilon=1e-5):
     """
     Jacobi interation for 2D diffusion equation with periodic boundary conditions.
     This is for Elliptic PDE: ∂c/∂t = D(∂^2c/∂x^2 + ∂^2c/∂y^2)
@@ -33,6 +33,8 @@ def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000,
         Number of iterations
     delta : float
         Error at convergence
+    delta_list : list
+        List of errors at each iteration
     """
 
     # initialize the concentration array
@@ -52,6 +54,7 @@ def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000,
 
     # default alpha is 0.25
     alpha = D * dt / (dx ** 2)
+    delta_list = np.zeros(max_iterations)
 
     iteration = 0
     while iteration < max_iterations:
@@ -60,7 +63,8 @@ def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000,
         
         # calculate the error
         delta = compute_max_diff(c_k, c_kp1)
-        
+        delta_list[iteration] = delta
+
         # check for convergence
         if delta < epsilon:
             break
@@ -69,7 +73,7 @@ def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000,
         c_k, c_kp1 = c_kp1, c_k
         iteration += 1
 
-    return c_k, iteration, delta
+    return c_k, iteration, delta, delta_list
 
 @njit(parallel=True)
 def update_interior(c_k, c_kp1, alpha):
@@ -97,10 +101,9 @@ def compute_max_diff(c_k, c_kp1):
 
 # Gauss-Seidel method
 @njit
-def gauss_seidel_seq(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000, epsilon=1e-5):
+def gauss_seidel_seq(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=10000, epsilon=1e-5):
     """
     Gauss-Seidel interation for 2D diffusion equation with periodic boundary conditions.
-    This is for Elliptic PDE: ∂c/∂t = D(∂^2c/∂x^2 + ∂^2c/∂y^2)
 
     Parameters:
     -----------
@@ -142,6 +145,7 @@ def gauss_seidel_seq(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000
 
     # default alpha is 0.25
     alpha = D * dt / (dx ** 2)
+    delta_list = np.zeros(max_iterations)
 
     iteration = 0
     while iteration < max_iterations:
@@ -153,6 +157,202 @@ def gauss_seidel_seq(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000
                 old_value = c_k[i, j]
                 c_k[i, j] = alpha * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1])
                 delta = max(delta, abs(c_k[i, j] - old_value))
+        
+        delta_list[iteration] = delta
+        # check for convergence
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list
+
+@njit(parallel=True)
+def gauss_seidel_wavefront(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=10000, epsilon=1e-5):
+    """
+    Gauss-Seidel parallel implementation, known as "wave front", for 2D diffusion equation with periodic boundary conditions.
+
+    Parameters:
+    -----------
+    N : int
+        Number of grid points in x-direction
+    M : int
+        Number of grid points in y-direction
+    D : float
+        Diffusion coefficient, default to 1.0
+    dt : float
+        Time step size
+    dx : float
+        Grid spacing
+    max_iterations : int
+        Maximum number of iterations
+    epsilon : float
+        Convergence criterion
+
+    Returns:
+    --------
+    c_k : 2D array
+        Concentration distribution at time step k
+    iteration : int
+        Number of iterations
+    delta : float
+        Error at convergence
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # set the left and right boundary values
+    left_right_boundary = np.linspace(0, 1, N)
+
+    # stationary boundary conditions
+    c_k[:, 0] = left_right_boundary
+    c_k[:, -1] = left_right_boundary
+    c_k[-1, :] = 1
+    c_k[0, :] = 0
+
+    alpha = D * dt / (dx ** 2)
+    delta_list = np.zeros(max_iterations)
+
+    iteration = 0
+    while iteration < max_iterations:
+        delta = 0.0
+
+        # wavefront update, parallel processing
+        # the wavefront is the diagonal line from right-top to left-bottom
+        for wavefront in range(2, N + M - 2):  # wavefront index, recall that the first and last rows and columns are boundary, which are fixed. so we should -2 after N+M
+            for i in prange(1, N - 1):  # parallel processing
+                j = wavefront - i
+                if 1 <= j < M - 1: # we should skip j = M-1, because it is the boundary
+                    old_value = c_k[i, j]
+                    c_k[i, j] = alpha * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1])
+                    delta = max(delta, abs(c_k[i, j] - old_value))
+
+        delta_list[iteration] = delta
+        # check for convergence
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list
+
+# Successive Over Relaxation (SOR) method
+@njit
+def sor_seq(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-5):
+    """
+    Successive Over Relaxation (SOR) interation for 2D diffusion equation with periodic boundary conditions.
+
+    Parameters:
+    -----------
+    N : int
+        Number of grid points in x-direction
+    M : int
+        Number of grid points in y-direction
+    omega : float
+        Relaxation parameter, default to 1.0
+    max_iterations : int
+        Maximum number of iterations
+    epsilon : float
+        Convergence criterion
+    
+    Returns:
+    --------
+    c_k : 2D array
+        Concentration distribution at time step k
+    iteration : int
+        Number of iterations
+    delta : float
+        Error at convergence
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # set the left and right boundary values
+    left_right_boundary = np.linspace(0, 1, N)
+
+    # stationary boundary conditions
+    c_k[:, 0] = left_right_boundary
+    c_k[:, -1] = left_right_boundary
+    c_k[-1, :] = 1
+    c_k[0, :] = 0
+
+    delta_list = np.zeros(max_iterations)
+    iteration = 0
+    while iteration < max_iterations:
+        delta = 0.0  # global error at each iteration
+        
+        # general SOR update
+        for i in range(1, N - 1):
+            for j in range(1, M - 1):
+                old_value = c_k[i, j]
+                c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1]) + (1 - omega) * c_k[i, j]
+                delta = max(delta, abs(c_k[i, j] - old_value))
+
+        delta_list[iteration] = delta
+        # check for convergence
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list
+
+@njit(parallel=True)
+def sor_wavefront(N=50, M=50, omega=1.0, max_iterations=10000, epsilon=1e-5):
+    """
+    Successive Over Relaxation (SOR) interation for 2D diffusion equation with periodic boundary conditions.
+    Parallel implementation, known as "wave front".
+
+    Parameters:
+    -----------
+    N : int
+        Number of grid points in x-direction
+    M : int
+        Number of grid points in y-direction
+    omega : float
+        Relaxation parameter, default to 1.0
+    max_iterations : int
+        Maximum number of iterations
+    epsilon : float
+        Convergence criterion
+    
+    Returns:
+    --------
+    c_k : 2D array
+        Concentration distribution at time step k
+    iteration : int
+        Number of iterations
+    delta : float
+        Error at convergence
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # set the left and right boundary values
+    left_right_boundary = np.linspace(0, 1, N)
+
+    # stationary boundary conditions
+    c_k[:, 0] = left_right_boundary
+    c_k[:, -1] = left_right_boundary
+    c_k[-1, :] = 1
+    c_k[0, :] = 0
+
+    iteration = 0
+    delta_list = np.zeros(max_iterations)
+    while iteration < max_iterations:
+        delta = 0.0
+
+        # wavefront update, parallel processing
+        # the wavefront is the diagonal line from right-top to left-bottom
+        for wavefront in range(2, N + M - 2):  # wavefront index, recall that the first and last rows and columns are boundary, which are fixed. so we should -2 after N+M
+            for i in prange(1, N - 1):  # parallel processing
+                j = wavefront - i
+                if 1 <= j < M - 1: # we should skip j = M-1, because it is the boundary
+                    old_value = c_k[i, j]
+                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1]) + (1 - omega) * c_k[i, j]
+                    delta = max(delta, abs(c_k[i, j] - old_value))
+
+        delta_list[iteration] = delta
 
         # check for convergence
         if delta < epsilon:
@@ -160,8 +360,7 @@ def gauss_seidel_seq(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=50000
 
         iteration += 1
 
-    return c_k, iteration, delta
-
+    return c_k, iteration, delta, delta_list
 
 if __name__ == "__main__":
     # run the Jacobi iteration
@@ -171,7 +370,7 @@ if __name__ == "__main__":
     #     np.allclose(optimized_concentration[:, i], optimized_concentration[:, -i])
     #print("All columns are the same symetrically.")
 
-    optimized_concentration, iteration, delta = gauss_seidel_seq()
+    optimized_concentration, iteration, delta, _ = sor_wavefront()
     print(f"Converged after {iteration} iterations with error {delta:.6e}")
     
     # plot the heatmap of the optimized concentration

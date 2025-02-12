@@ -323,14 +323,9 @@ def sor_seq(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-5):
             for j in range(0, M):
                 old_value = c_k[i, j]
                 # deal with the periodic boundary conditions
-                if j == 0:
-                    # the left side of the left boundary is the right boundary
-                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, -1] + c_k[i, j+1]) + (1 - omega) * c_k[i, j]
-                elif j == M - 1:
-                    # the right side of the right boundary is the left boundary
-                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j-1] + c_k[i, 0]) + (1 - omega) * c_k[i, j]
-                else:
-                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, j+1] + c_k[i, j-1]) + (1 - omega) * c_k[i, j]
+                # the left side of the left boundary is the right boundary, and vice versa
+                # so we can use the modulo operator to deal with the periodic boundary conditions
+                c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, (j+1) % M] + c_k[i, (j-1) % M]) + (1 - omega) * c_k[i, j]
                 delta = max(delta, abs(c_k[i, j] - old_value))
 
         delta_list[iteration] = delta
@@ -493,7 +488,7 @@ def sor_wavefront(N=50, M=50, omega=1.0, max_iterations=10000, epsilon=1e-5):
 
 if __name__ == "__main__":
     # run the Jacobi iteration
-    optimized_concentration, iteration, delta, _ = sor_red_black()
+    optimized_concentration, iteration, delta, _ = sor_seq()
     # check each column is the same symetrically
     for i in range(1, optimized_concentration.shape[1]):
         np.allclose(optimized_concentration[:, i], optimized_concentration[:, 0])

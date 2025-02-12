@@ -343,6 +343,81 @@ def sor_seq(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-5):
     return c_k, iteration, delta, delta_list
 
 @njit(parallel=True)
+def sor_red_black(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-5):
+    """
+    Red-Black SOR iteration for 2D diffusion equation with periodic boundary conditions.
+
+    Parameters:
+    -----------
+    N : int
+        Number of grid points in x-direction
+    M : int
+        Number of grid points in y-direction
+    omega : float
+        Relaxation parameter, default to 1.0
+    max_iterations : int
+        Maximum number of iterations
+    epsilon : float
+        Convergence criterion
+    
+    Returns:
+    --------
+    c_k : 2D array
+        Concentration distribution at time step k
+    iteration : int
+        Number of iterations
+    delta : float
+        Error at convergence
+    delta_list : 1D array
+        Error at each iteration
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # stationary boundary conditions
+    c_k[0, :] = 1
+    c_k[-1, :] = 0
+
+    delta_list = np.zeros(max_iterations)
+    iteration = 0
+
+    while iteration < max_iterations:
+        delta = 0.0  # global error at each iteration
+        delta_local_list = np.zeros(N)  # local error for each thread
+        # update red points
+        for i in prange(1, N - 1):  
+            for j in range(0, M):
+                if (i + j) % 2 == 0:  # choose red points
+                    old_value = c_k[i, j]
+                    # deal with the periodic boundary conditions
+                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, (j+1) % M] + c_k[i, (j-1) % M]) + (1 - omega) * c_k[i, j]
+                    delta_local_list[i] = max(delta, abs(c_k[i, j] - old_value))
+        
+        # update the global error
+        delta = np.max(delta_local_list)
+
+        # update black after red updated
+        for i in prange(1, N - 1):  
+            for j in range(0, M):
+                if (i + j) % 2 == 1:  # choose black points
+                    old_value = c_k[i, j]
+                    c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, (j+1) % M] + c_k[i, (j-1) % M]) + (1 - omega) * c_k[i, j]
+                    delta_local_list[i] = max(delta, abs(c_k[i, j] - old_value))
+        
+        # update the global error
+        delta = np.max(delta_local_list)
+        
+        # store the global error
+        delta_list[iteration] = delta
+
+        # convergence check
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list
+@njit(parallel=True)
 def sor_wavefront(N=50, M=50, omega=1.0, max_iterations=10000, epsilon=1e-5):
     """
     Successive Over Relaxation (SOR) interation for 2D diffusion equation with periodic boundary conditions.
@@ -418,7 +493,7 @@ def sor_wavefront(N=50, M=50, omega=1.0, max_iterations=10000, epsilon=1e-5):
 
 if __name__ == "__main__":
     # run the Jacobi iteration
-    optimized_concentration, iteration, delta, _ = sor_wavefront()
+    optimized_concentration, iteration, delta, _ = sor_red_black()
     # check each column is the same symetrically
     for i in range(1, optimized_concentration.shape[1]):
         np.allclose(optimized_concentration[:, i], optimized_concentration[:, 0])

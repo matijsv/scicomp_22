@@ -75,6 +75,44 @@ def jacobi_parallel(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=10000,
 
     return c_k, iteration, delta, delta_list
 
+# jacobi method
+def jacobi_parallel_within_time(N=50, M=50, D=1.0, dt=0.0001, dx=1/50, max_iterations=1000, epsilon=1e-5):
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # stationary boundary conditions
+    c_k[0, :] = 1
+    c_k[-1, :] = 0
+
+    # create a copy of the concentration array
+    c_kp1 = np.copy(c_k)
+    c_k_list = [np.copy(c_k)]
+
+    # default alpha is 0.25
+    alpha = D * dt / (dx ** 2)
+    delta_list = np.zeros(max_iterations)
+
+    iteration = 0
+    while iteration < max_iterations:
+        # update interior points
+        c_kp1 = update_interior_time_dependent(c_k, c_kp1, alpha)
+        
+        # calculate the error
+        delta = compute_max_diff(c_k, c_kp1)
+        delta_list[iteration] = delta
+
+        # # check for convergence
+        # if delta < epsilon:
+        #     break
+
+        # swap arrays
+        c_k, c_kp1 = c_kp1, c_k
+        ck_copy = np.copy(c_k)
+        c_k_list.append(ck_copy)
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list, c_k_list
+
 @njit(parallel=True)
 def update_interior(c_k, c_kp1, alpha):
     rows, cols = c_k.shape
@@ -100,6 +138,15 @@ def update_interior(c_k, c_kp1, alpha):
                 c_kp1[i, j] = alpha * (
                     c_k[i - 1, j] + c_k[i + 1, j] + c_k[i, j - 1] + c_k[i, j + 1]
                 )
+    return c_kp1
+
+@njit(parallel=True)
+def update_interior_time_dependent(c_k, c_kp1, alpha):
+    rows, cols = c_k.shape
+    for i in prange(1, rows - 1):
+        for j in range(0, cols):
+            # deal with the periodic boundary conditions
+            c_k[i, j] = alpha * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, (j+1) % cols] + c_k[i, (j-1) % cols] - 4 * c_k[i, j]) + c_k[i, j]
     return c_kp1
 
 # calculate the maximum difference between two arrays

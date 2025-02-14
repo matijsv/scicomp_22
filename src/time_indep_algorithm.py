@@ -615,6 +615,99 @@ def sor_with_rect_sinks(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-
 
     return c_k, iteration, delta, delta_list
 
+import numpy as np
+from numba import njit
+
+@njit
+def sor_with_rect_insulators(N=50, M=50, omega=1.0, max_iterations=5000, epsilon=1e-5, insulator_list=[]):
+    """
+    Successive Over Relaxation (SOR) iteration with insulating rectangular obstacles (Neumann boundary).
+
+    Parameters:
+    -----------
+    N, M : int
+        Grid size (N x M)
+    omega : float
+        Relaxation parameter (SOR factor)
+    max_iterations : int
+        Maximum iterations
+    epsilon : float
+        Convergence criterion
+    insulator_list : list of tuples
+        List of rectangular insulators defined as [(x, y, l, w), ...], where:
+        - (x, y) is the top-left corner
+        - l, w are the length and width of the rectangle
+    
+    Returns:
+    --------
+    c_k : 2D array
+        Concentration field at convergence
+    iteration : int
+        Number of iterations
+    delta : float
+        Final error at convergence
+    delta_list : 1D array
+        Error history over iterations
+    """
+    # initialize the concentration array
+    c_k = np.zeros((N, M))
+
+    # stationary boundary conditions
+    c_k[0, :] = 1
+    c_k[-1, :] = 0
+
+    # create a mask for the insulators 1 is insulator, 0 is normal cell
+    insulator_mask = np.zeros((N, M), dtype=np.int32)
+
+    # mark the insulator locations
+    for (x, y, l, w) in insulator_list:
+        x_end = min(x + l, N)  # ensure the insulator is within the grid
+        y_end = min(y + w, M)
+
+        assert x > 0 and x < N - 1 and x_end < N - 1, "Insulator x-coordinate must be within the grid"
+        assert y >= 0 and y < M and y_end <= M, "Insulator y-coordinate must be within the grid"
+
+        for i in range(x, x_end):
+            for j in range(y, y_end):
+                insulator_mask[i, j] = 1  # mark the insulator
+
+    delta_list = np.zeros(max_iterations)
+    iteration = 0
+
+    while iteration < max_iterations:
+        delta = 0.0  # global error at each iteration
+        
+        for i in range(1, N - 1):
+            for j in range(0, M):
+                if insulator_mask[i, j] == 1:
+                    # insulator cells, just relect the heat
+                    if insulator_mask[i-1, j] == 0:  # up is normal cell
+                        c_k[i, j] = c_k[i-1, j]
+                    elif insulator_mask[i, j-1] == 0:  # left is normal cell
+                        c_k[i, j] = c_k[i, j-1]
+                    elif insulator_mask[i, j+1] == 0:  # right is normal cell
+                        c_k[i, j] = c_k[i, j+1]
+                    elif insulator_mask[i+1, j] == 0:  # down is normal cell
+                        c_k[i, j] = c_k[i+1, j]
+                    continue  # skip the insulator cells
+
+                old_value = c_k[i, j]
+                
+                # deal with the periodic boundary conditions
+                c_k[i, j] = omega / 4.0 * (c_k[i+1, j] + c_k[i-1, j] + c_k[i, (j+1) % M] + c_k[i, (j-1) % M]) + (1 - omega) * c_k[i, j]
+                delta = max(delta, abs(c_k[i, j] - old_value))
+
+        delta_list[iteration] = delta
+
+        # check for convergence
+        if delta < epsilon:
+            break
+
+        iteration += 1
+
+    return c_k, iteration, delta, delta_list
+
+
 if __name__ == "__main__":
     # run the Jacobi iteration
     optimized_concentration, iteration, delta, _ = sor_with_rect_sinks(sink_list=[(20, 20, 10, 10)])

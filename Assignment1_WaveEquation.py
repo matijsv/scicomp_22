@@ -77,3 +77,5 @@ def update(frame):
 
 ani = animation.FuncAnimation(fig_anim, update, frames=timesteps, interval=20, blit=True)
 plt.show()
+
+

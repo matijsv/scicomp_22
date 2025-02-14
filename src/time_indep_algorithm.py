@@ -563,8 +563,6 @@ def sor_with_rect_sinks(N=50, M=50, omega=1.0, max_iterations=50000, epsilon=1e-
         Final error at convergence
     delta_list : 1D array
         Error history over iterations
-    object_mask : 2D array
-        Mask indicating sink locations (1 for sinks, 0 for normal cells)
     """
     # initialize the concentration array
     c_k = np.zeros((N, M))

@@ -15,7 +15,7 @@ def run_sor_experiment(N_values, omega_values, tia):
         best_omega = None
 
         for omega in omega_values:
-            _, iteration_sor, delta_sor, _ = tia.sor_wavefront(N=N, M=N, omega=omega, max_iterations=10000)
+            _, iteration_sor, delta_sor, _ = tia.sor_seq(N=N, M=N, omega=omega, max_iterations=10000)
 
             if iteration_sor < best_iterations:
                 best_iterations = iteration_sor
